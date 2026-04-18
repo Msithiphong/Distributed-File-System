@@ -1,6 +1,0 @@
-# Paxos Log Example
-
-[2026-04-17] Node 1: Propose touch file1.txt, proposal #1
-[2026-04-17] Node 2: ACCEPT touch file1.txt, proposal #1
-[2026-04-17] Node 3: LEARN touch file1.txt, proposal #1
-[2026-04-17] Node 1: Committed touch file1.txt, proposal #1

@@ -1,43 +1,48 @@
-# dfs/sort.py
 """
 Distributed sorting for DFS files.
 """
+import hashlib
+
 from dfs.api import DFS
-from dfs.metadata import Metadata
-import json
+
 
 class DistributedSorter:
     def __init__(self, dfs: DFS):
         self.dfs = dfs
 
     def sort_file(self, filename, output_filename):
-        """Distributed sort: read, partition, aggregate, and write sorted output."""
-        # 1. Read all pages and parse records
-        meta = Metadata(filename)
-        meta_key = meta.get_metadata_key()
-        meta_json = self.dfs.chord.get(meta_key)
-        if not meta_json:
+        """Read, partition by Chord successor, locally sort, and write output."""
+        meta = self.dfs._get_metadata(filename)
+        if not meta:
             return False
-        meta = Metadata.from_json(meta_json)
-        records = []
+
+        buckets = {
+            node.node_id: []
+            for node in sorted(self.dfs.chord.ring, key=lambda item: item.node_id)
+        }
         for page_desc in meta.pages:
-            page_data = self.dfs.chord.get(page_desc['guid'])
-            if page_data:
+            page_data = self.dfs.chord.get(page_desc["guid"])
+            if not page_data:
+                continue
+            try:
                 lines = page_data.decode().splitlines()
-                for line in lines:
-                    if ',' in line:
-                        key, value = line.split(',', 1)
-                        records.append((key, value))
-        # 2. Sort all records (simulate distributed aggregation)
-        records.sort(key=lambda x: x[0])
-        # 3. Write sorted output as new DFS file
-        # (For simplicity, one page; can split if large)
-        output_content = '\n'.join([f"{k},{v}" for k, v in records]).encode()
-        self.dfs.touch(output_filename)
-        # Write as a single page
-        import tempfile
-        with tempfile.NamedTemporaryFile(delete=False) as tmp:
-            tmp.write(output_content)
-            tmp_path = tmp.name
-        self.dfs.append(output_filename, tmp_path)
-        return True
+            except UnicodeDecodeError:
+                return False
+            for line in lines:
+                if "," not in line:
+                    continue
+                key, value = line.split(",", 1)
+                route_key = hashlib.sha1(key.encode()).hexdigest()
+                owner = self.dfs.chord.locate_successor(route_key)
+                buckets[owner.node_id].append((key, value))
+
+        records = []
+        for node_id in sorted(buckets):
+            local_records = sorted(buckets[node_id], key=lambda record: record[0])
+            records.extend(local_records)
+        if not records:
+            return False
+
+        records.sort(key=lambda record: record[0])
+        output_content = ("\n".join([f"{key},{value}" for key, value in records]) + "\n").encode()
+        return self.dfs._write_bytes(output_filename, output_content)
