@@ -1,0 +1,32 @@
+Node 1: PROPOSE touch ex.txt, proposal #1
+Node 1: ACCEPT from leader 1 touch ex.txt, proposal #1
+Node 2: ACCEPT from leader 1 touch ex.txt, proposal #1
+Node 3: ACCEPT from leader 1 touch ex.txt, proposal #1
+Node 1: LEARN touch ex.txt, proposal #1
+Node 2: LEARN touch ex.txt, proposal #1
+Node 3: LEARN touch ex.txt, proposal #1
+Node 1: COMMIT touch ex.txt, proposal #1, majority 3/3
+Node 1: PROPOSE append ex.txt page 2d49baa536709bed2f87ecf40f1664394d2649ee, proposal #2
+Node 1: ACCEPT from leader 1 append ex.txt page 2d49baa536709bed2f87ecf40f1664394d2649ee, proposal #2
+Node 2: ACCEPT from leader 1 append ex.txt page 2d49baa536709bed2f87ecf40f1664394d2649ee, proposal #2
+Node 3: ACCEPT from leader 1 append ex.txt page 2d49baa536709bed2f87ecf40f1664394d2649ee, proposal #2
+Node 1: LEARN append ex.txt page 2d49baa536709bed2f87ecf40f1664394d2649ee, proposal #2
+Node 2: LEARN append ex.txt page 2d49baa536709bed2f87ecf40f1664394d2649ee, proposal #2
+Node 3: LEARN append ex.txt page 2d49baa536709bed2f87ecf40f1664394d2649ee, proposal #2
+Node 1: COMMIT append ex.txt page 2d49baa536709bed2f87ecf40f1664394d2649ee, proposal #2, majority 3/3
+Node 1: PROPOSE touch sorted_file.txt, proposal #3
+Node 1: ACCEPT from leader 1 touch sorted_file.txt, proposal #3
+Node 2: ACCEPT from leader 1 touch sorted_file.txt, proposal #3
+Node 3: ACCEPT from leader 1 touch sorted_file.txt, proposal #3
+Node 1: LEARN touch sorted_file.txt, proposal #3
+Node 2: LEARN touch sorted_file.txt, proposal #3
+Node 3: LEARN touch sorted_file.txt, proposal #3
+Node 1: COMMIT touch sorted_file.txt, proposal #3, majority 3/3
+Node 1: PROPOSE append sorted_file.txt page d366f885d0cbad9501197242cf43f5f80156ada9, proposal #4
+Node 1: ACCEPT from leader 1 append sorted_file.txt page d366f885d0cbad9501197242cf43f5f80156ada9, proposal #4
+Node 2: ACCEPT from leader 1 append sorted_file.txt page d366f885d0cbad9501197242cf43f5f80156ada9, proposal #4
+Node 3: ACCEPT from leader 1 append sorted_file.txt page d366f885d0cbad9501197242cf43f5f80156ada9, proposal #4
+Node 1: LEARN append sorted_file.txt page d366f885d0cbad9501197242cf43f5f80156ada9, proposal #4
+Node 2: LEARN append sorted_file.txt page d366f885d0cbad9501197242cf43f5f80156ada9, proposal #4
+Node 3: LEARN append sorted_file.txt page d366f885d0cbad9501197242cf43f5f80156ada9, proposal #4
+Node 1: COMMIT append sorted_file.txt page d366f885d0cbad9501197242cf43f5f80156ada9, proposal #4, majority 3/3

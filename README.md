@@ -135,6 +135,11 @@ The test suite covers:
 - DFS mutation flow through Paxos and Chord storage
 - CLI command workflow and distributed sorting
 
+
+## External Libraries
+
+This project uses only Python standard library modules and does not require any external (third-party) libraries. All dependencies are included with a standard Python 3 installation. No additional installation via pip is necessary.
+
 ## Notes And Limitations
 
 - The topology is in-process for this assignment version; it does not require sockets or multiple terminal processes.
