@@ -21,8 +21,11 @@ class DistributedSorter:
             for node in sorted(self.dfs.chord.ring, key=lambda item: item.node_id)
         }
         for page_desc in meta.pages:
-            page_data = self.dfs.chord.get(page_desc["guid"])
-            if not page_data:
+            page_data = self.dfs.chord.get_replicated(
+                page_desc["guid"],
+                count=self.dfs.replication_factor,
+            )
+            if page_data is None:
                 continue
             try:
                 lines = page_data.decode().splitlines()
@@ -44,5 +47,7 @@ class DistributedSorter:
             return False
 
         records.sort(key=lambda record: record[0])
-        output_content = ("\n".join([f"{key},{value}" for key, value in records]) + "\n").encode()
+        output_content = (
+            "\n".join([f"{key},{value}" for key, value in records]) + "\n"
+        ).encode()
         return self.dfs._write_bytes(output_filename, output_content)

@@ -16,6 +16,9 @@ class PaxosReplica:
         self.log = []
         self.log_path = Path(log_path)
         self.apply_callback = None
+        self.active = True
+        self._committed_proposals = set()
+        self._applied_proposals = set()
         self.lock = threading.Lock()
 
     def configure_cluster(self, replicas, leader_id=1):
@@ -27,8 +30,20 @@ class PaxosReplica:
 
     def propose(self, operation):
         """Propose an operation as leader and commit after a majority learns it."""
+        if not self.active:
+            self._write_log(
+                f"Node {self.replica_id}: ABORT inactive proposer "
+                f"{self._describe(operation)}"
+            )
+            return False
         if not self.is_leader():
             leader = self._leader_replica()
+            if not leader.active:
+                self._write_log(
+                    f"Node {self.replica_id}: ABORT leader {leader.replica_id} inactive "
+                    f"{self._describe(operation)}"
+                )
+                return False
             return leader.propose(operation)
 
         with self.lock:
@@ -65,8 +80,6 @@ class PaxosReplica:
             )
             return False
 
-        if self.apply_callback:
-            self.apply_callback(operation)
         for replica in self.peers:
             replica.commit(proposal_number, operation)
 
@@ -78,8 +91,18 @@ class PaxosReplica:
 
     def receive_accept(self, proposal_number, operation, leader_id=None):
         """Handle ACCEPT message from leader."""
+        if not self.active:
+            self._write_log(
+                f"Node {self.replica_id}: SKIP ACCEPT inactive "
+                f"{self._describe(operation)}, proposal #{proposal_number}"
+            )
+            return False
         with self.lock:
             if proposal_number < self.accepted_number:
+                self._write_log(
+                    f"Node {self.replica_id}: REJECT ACCEPT "
+                    f"{self._describe(operation)}, proposal #{proposal_number}"
+                )
                 return False
             self.accepted_number = proposal_number
             self.accepted_value = operation
@@ -92,6 +115,12 @@ class PaxosReplica:
 
     def receive_learn(self, proposal_number, operation):
         """Handle LEARN message from replica."""
+        if not self.active:
+            self._write_log(
+                f"Node {self.replica_id}: SKIP LEARN inactive "
+                f"{self._describe(operation)}, proposal #{proposal_number}"
+            )
+            return False
         if proposal_number != self.accepted_number:
             return False
         self._write_log(
@@ -101,11 +130,77 @@ class PaxosReplica:
         return True
 
     def commit(self, proposal_number, operation):
+        if not self.active:
+            self._write_log(
+                f"Node {self.replica_id}: SKIP COMMIT inactive "
+                f"{self._describe(operation)}, proposal #{proposal_number}"
+            )
+            return False
         entry = {
             "proposal_number": proposal_number,
             "operation": operation,
         }
-        self.log.append(entry)
+        with self.lock:
+            self.proposal_number = max(self.proposal_number, proposal_number)
+            self.accepted_number = max(self.accepted_number, proposal_number)
+            if proposal_number not in self._committed_proposals:
+                self.log.append(entry)
+                self.log.sort(key=lambda item: item["proposal_number"])
+                self._committed_proposals.add(proposal_number)
+            should_apply = (
+                self.apply_callback is not None
+                and proposal_number not in self._applied_proposals
+            )
+
+        if should_apply:
+            self.apply_callback(operation)
+            with self.lock:
+                self._applied_proposals.add(proposal_number)
+        return True
+
+    def crash(self):
+        if not self.active:
+            return
+        self.active = False
+        self._write_log(f"Node {self.replica_id}: CRASH")
+
+    def recover(self):
+        if self.active:
+            return
+        self.active = True
+        self._write_log(f"Node {self.replica_id}: RECOVER")
+
+    def sync_from(self, replica):
+        if not self.active:
+            self._write_log(
+                f"Node {self.replica_id}: SKIP CATCH_UP inactive from replica "
+                f"{replica.replica_id}"
+            )
+            return 0
+
+        replayed = 0
+        self._write_log(
+            f"Node {self.replica_id}: CATCH_UP from replica {replica.replica_id}"
+        )
+        for entry in replica.log:
+            proposal_number = entry["proposal_number"]
+            operation = entry["operation"]
+            if proposal_number in self._committed_proposals:
+                continue
+            self._write_log(
+                f"Node {self.replica_id}: REPLAY {self._describe(operation)}, "
+                f"proposal #{proposal_number} from replica {replica.replica_id}"
+            )
+            if self.commit(proposal_number, operation):
+                replayed += 1
+        self._write_log(
+            f"Node {self.replica_id}: CATCH_UP complete from replica "
+            f"{replica.replica_id}, replayed {replayed}"
+        )
+        return replayed
+
+    def catch_up_from_leader(self):
+        return self.sync_from(self._leader_replica())
 
     def is_leader(self):
         return self.leader == self.replica_id

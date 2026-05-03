@@ -19,6 +19,7 @@ def create_local_dfs_topology(
     num_chord_nodes=5,
     num_paxos_replicas=3,
     log_path="storage/paxos_log.txt",
+    replication_factor=DFS.DEFAULT_REPLICATION_FACTOR,
 ):
     chord_nodes = create_local_chord_ring(num_nodes=num_chord_nodes)
     paxos_replicas = create_local_paxos_cluster(
@@ -26,7 +27,13 @@ def create_local_dfs_topology(
         leader_id=1,
         log_path=log_path,
     )
-    dfs = DFS(chord_nodes[0], paxos_replicas[0])
+    dfs = DFS(
+        chord_nodes[0],
+        paxos_replica=paxos_replicas[0],
+        replication_factor=replication_factor,
+    )
+    for replica in paxos_replicas:
+        replica.set_apply_callback(dfs._apply_committed_operation)
     return LocalDFSTopology(
         dfs=dfs,
         chord_nodes=chord_nodes,

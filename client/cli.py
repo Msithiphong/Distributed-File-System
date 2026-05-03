@@ -47,6 +47,27 @@ class DFSShell(cmd.Cmd):
     def _usage(self, command, usage):
         self.poutput(f"Usage: {command} {usage}".rstrip())
 
+    def _paxos_replicas(self):
+        if self.topology is not None:
+            return self.topology.paxos_replicas
+        if self.dfs.paxos is not None:
+            return self.dfs.paxos.peers or [self.dfs.paxos]
+        return []
+
+    def _paxos_leader(self):
+        for replica in self._paxos_replicas():
+            if replica.is_leader():
+                return replica
+        return None
+
+    def _paxos_log_path(self):
+        leader = self._paxos_leader()
+        if leader is not None:
+            return leader.log_path
+        if self.dfs.paxos is not None:
+            return self.dfs.paxos.log_path
+        return Path("storage/paxos_log.txt")
+
     def _print_bytes(self, filename, data):
         if data is None:
             self.poutput(f"File not found: {filename}")
@@ -222,6 +243,127 @@ class DFSShell(cmd.Cmd):
         else:
             self.poutput(
                 f"Sort failed: {input_filename} has no valid key,value records"
+            )
+
+    def do_topology(self, arg):
+        """topology - print Chord ring and Paxos replica details."""
+        args = self._parse_args(arg)
+        if args is None:
+            return
+        if args:
+            self._usage("topology", "")
+            return
+
+        for node in self.dfs.chord.ring_summary():
+            host, port = node["address"]
+            fingers = ", ".join(str(node_id) for node_id in node["finger_table"])
+            self.poutput(
+                f"Chord node {node['node_id']} @ {host}:{port} "
+                f"pred={node['predecessor']} succ={node['successor']} "
+                f"fingers=[{fingers}]"
+            )
+
+        replicas = self._paxos_replicas()
+        if not replicas:
+            self.poutput("No Paxos replicas configured.")
+            return
+
+        leader = self._paxos_leader()
+        replica_text = ", ".join(
+            f"{replica.replica_id}({'active' if replica.active else 'crashed'})"
+            for replica in replicas
+        )
+        self.poutput(f"Paxos replicas: {replica_text}")
+        if leader is not None:
+            self.poutput(f"Paxos leader: {leader.replica_id}")
+
+    def do_paxos_log(self, arg):
+        """paxos_log [n] - print the last n Paxos log lines."""
+        args = self._parse_args(arg)
+        if args is None:
+            return
+        if len(args) > 1:
+            self._usage("paxos_log", "[n]")
+            return
+
+        line_count = 20
+        if args:
+            try:
+                line_count = int(args[0])
+            except ValueError:
+                self.poutput("n must be an integer")
+                return
+            if line_count < 0:
+                self.poutput("n must be non-negative")
+                return
+
+        log_path = self._paxos_log_path()
+        if not log_path.exists():
+            self.poutput(f"No Paxos log found at {log_path}")
+            return
+
+        lines = log_path.read_text(encoding="utf-8").splitlines()
+        if not lines or line_count == 0:
+            return
+        for line in lines[-line_count:]:
+            self.poutput(line)
+
+    def do_failure_demo(self, arg):
+        """failure_demo - crash a follower, commit with a majority, then recover it."""
+        args = self._parse_args(arg)
+        if args is None:
+            return
+        if args:
+            self._usage("failure_demo", "")
+            return
+
+        replicas = self._paxos_replicas()
+        leader = self._paxos_leader()
+        if len(replicas) < 3 or leader is None:
+            self.poutput("failure_demo requires a 3-replica Paxos cluster.")
+            return
+
+        follower = next(
+            (
+                replica
+                for replica in replicas
+                if replica.replica_id != leader.replica_id
+            ),
+            None,
+        )
+        if follower is None:
+            self.poutput("No follower replica available for failure_demo.")
+            return
+
+        demo_filename = "failure_demo.txt"
+        if not follower.active:
+            follower.recover()
+        if self.dfs.stat(demo_filename) is not None:
+            self.dfs.delete_file(demo_filename)
+
+        follower.crash()
+        committed = self.dfs.touch(demo_filename)
+        follower.recover()
+        replayed = follower.catch_up_from_leader()
+        stat = self.dfs.stat(demo_filename)
+
+        self.poutput(f"Crashed follower replica {follower.replica_id}")
+        if committed:
+            self.poutput(
+                f"Majority commit succeeded for touch {demo_filename} with 2/3 replicas."
+            )
+        else:
+            self.poutput(
+                f"Majority commit failed for touch {demo_filename} with 2/3 replicas."
+            )
+        self.poutput(f"Recovered follower replica {follower.replica_id}")
+        self.poutput(
+            f"Follower catch-up replayed {replayed} committed operation(s)."
+        )
+        if stat is not None:
+            self.poutput(
+                "Metadata replicas after recovery: "
+                f"{stat.get('metadata_replicas', [])}"
             )
 
     def do_exit(self, arg):

@@ -1,6 +1,6 @@
-# chord/node.py
 """
-Chord node implementation, finger table logic, and routing operations.
+Chord node implementation, finger table logic, routing operations, and
+successor-based replication helpers.
 """
 import hashlib
 
@@ -37,7 +37,8 @@ def create_local_chord_ring(num_nodes=5, host="127.0.0.1", base_port=5000):
         node.ring = nodes
         node.successor = nodes[(idx + 1) % len(nodes)]
         node.predecessor = nodes[(idx - 1) % len(nodes)]
-        node.finger_table = [node.successor]
+    for node in nodes:
+        node.finger_table = node.build_finger_table()
     return nodes
 
 
@@ -51,14 +52,39 @@ class ChordNode:
         self.ring = [self]
         self._store = {}
 
-    def locate_successor(self, key):
-        """Find the successor node for a given key."""
-        key_id = key_to_id(key)
-        ring = sorted(self.ring, key=lambda node: node.node_id)
+    def _sorted_ring(self):
+        return sorted(self.ring, key=lambda node: node.node_id)
+
+    def _successor_for_id(self, key_id):
+        ring = self._sorted_ring()
         for node in ring:
             if key_id <= node.node_id:
                 return node
         return ring[0]
+
+    def build_finger_table(self):
+        """Build a full Chord finger table for local inspection and routing."""
+        return [
+            self._successor_for_id((self.node_id + (1 << offset)) % RING_SIZE)
+            for offset in range(RING_BITS)
+        ]
+
+    def locate_successor(self, key):
+        """Find the successor node responsible for a given key."""
+        return self._successor_for_id(key_to_id(key))
+
+    def replica_nodes_for_key(self, key, count=3):
+        """Return the owner and successor replicas for a key."""
+        if count <= 0:
+            return []
+        ring = self._sorted_ring()
+        owner = self.locate_successor(key)
+        owner_index = ring.index(owner)
+        replica_count = min(count, len(ring))
+        return [
+            ring[(owner_index + offset) % len(ring)]
+            for offset in range(replica_count)
+        ]
 
     def put(self, key, value):
         """Store a value at the node responsible for the key."""
@@ -76,4 +102,48 @@ class ChordNode:
         node = self.locate_successor(key)
         return node._store.pop(key, None) is not None
 
-    # ...other Chord operations...
+    def put_replicated(self, key, value, count=3):
+        """Store the same key/value on the owner and successor replicas."""
+        replica_nodes = self.replica_nodes_for_key(key, count=count)
+        for node in replica_nodes:
+            node._store[key] = value
+        return replica_nodes
+
+    def get_replicated(self, key, count=3):
+        """Retrieve a replicated value from the owner or any successor copy."""
+        for node in self.replica_nodes_for_key(key, count=count):
+            if key in node._store:
+                return node._store[key]
+        return None
+
+    def delete_replicated(self, key, count=3):
+        """Delete every replicated copy of a key."""
+        removed = False
+        for node in self.replica_nodes_for_key(key, count=count):
+            if key in node._store:
+                del node._store[key]
+                removed = True
+        return removed
+
+    def finger_table_summary(self):
+        """Return the finger table as a compact list of node IDs."""
+        summary = []
+        for node in self.finger_table:
+            if not summary or summary[-1] != node.node_id:
+                summary.append(node.node_id)
+        return summary
+
+    def ring_summary(self):
+        """Return demo-friendly ring information for every node."""
+        return [
+            {
+                "node_id": node.node_id,
+                "predecessor": (
+                    node.predecessor.node_id if node.predecessor else None
+                ),
+                "successor": node.successor.node_id if node.successor else None,
+                "address": node.address,
+                "finger_table": node.finger_table_summary(),
+            }
+            for node in self._sorted_ring()
+        ]
